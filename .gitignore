@@ -1,0 +1,16 @@
+# Built site -- regenerated from the asset folders by scripts/build_manifest.py
+# (in CI on deploy). Never committed; it's a pure build artifact.
+site/
+
+# A local vrmod checkout, if you drop one here for dev
+_vrmod/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db

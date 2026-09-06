@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Viper Racing Community Gallery</title>
+<style>
+  :root{
+    --bg:#15171c; --panel:#1a1d24; --line:#2c313b; --ink:#e6e8ec; --dim:#9aa1ad;
+    --accent:#8ecfff; --accent-bg:#1c2050; --accent-line:#2a2e6a; --good:#79d18b; --bad:#e0574a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px system-ui,sans-serif;background:var(--bg);color:var(--ink);
+       display:flex;flex-direction:column;height:100vh}
+  header{padding:10px 16px;border-bottom:1px solid var(--line);display:flex;
+         gap:12px;align-items:center;flex-wrap:wrap;flex:0 0 auto}
+  h1{font-size:14px;margin:0;font-weight:600}
+  h1 span{color:var(--dim);font-weight:400}
+  #search{background:#12141a;border:1px solid var(--line);border-radius:6px;color:var(--ink);
+          padding:6px 10px;font:inherit;min-width:200px}
+  #status{color:var(--dim);font-size:12.5px;margin-left:auto;text-align:right}
+  #status.err{color:var(--bad);white-space:pre-wrap}
+  #status.ok{color:var(--good)}
+
+  main{flex:1;min-height:0;display:flex}
+  #library{flex:0 0 420px;border-right:1px solid var(--line);overflow:auto;background:#131519}
+  #viewer{flex:1;min-width:0;display:flex;flex-direction:column}
+
+  #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;padding:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;
+        cursor:pointer;display:flex;flex-direction:column;transition:border-color .12s}
+  .card:hover{border-color:var(--accent-line)}
+  .card.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .shot{height:104px;background:#12141a;display:flex;align-items:center;justify-content:center;color:#4a515e;font-size:11px}
+  .shot img{width:100%;height:100%;object-fit:contain}
+  .meta{padding:7px 9px;border-top:1px solid var(--line)}
+  .meta .name{font-weight:600;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .meta .sub{color:var(--dim);font-size:11px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vchip{font-size:9.5px;padding:0 4px;border-radius:3px;white-space:nowrap;cursor:help}
+  .vchip.incomplete{background:#442022;color:#ef9a94}
+  .sectionhdr{grid-column:1/-1;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:6px 2px 0}
+  .empty{grid-column:1/-1;padding:40px 16px;text-align:center;color:var(--dim)}
+
+  #viewerbar{padding:8px 16px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center;flex:0 0 auto}
+  #viewerbar .title{font-weight:600}
+  #viewerbar .vstat{color:var(--dim);font-size:12px;margin-left:auto}
+  #frame{flex:1;border:0;width:100%;background:#0e1017}
+  #viewer-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--dim);text-align:center;padding:0 24px;line-height:1.5}
+  #viewer-empty[hidden]{display:none}
+
+  #overlay{position:fixed;inset:0;z-index:50;background:rgba(15,17,22,.92);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+  #overlay[hidden]{display:none}
+  .spinner{width:46px;height:46px;border-radius:50%;border:4px solid #2c313b;border-top-color:var(--accent);animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #overlay-msg{font-size:15px;font-weight:600} #overlay-sub{color:var(--dim);font-size:12.5px}
+</style>
+</head>
+<body>
+<div id="overlay" hidden>
+  <div class="spinner"></div>
+  <div id="overlay-msg">Loading…</div>
+  <div id="overlay-sub"></div>
+</div>
+
+<header>
+  <h1>Viper Racing Community Gallery <span>· preview & download community cars and tracks</span></h1>
+  <input id="search" type="search" placeholder="Search name or author…" autocomplete="off">
+  <span id="status">loading catalog…</span>
+</header>
+
+<main>
+  <aside id="library"><div id="grid"></div></aside>
+  <section id="viewer">
+    <div id="viewerbar" hidden>
+      <span class="title" id="v-title"></span>
+      <a id="v-download" href="#" download style="color:var(--accent);font-size:12px">⤓ Download</a>
+      <span class="vstat" id="v-stat"></span>
+    </div>
+    <div id="viewer-empty">Pick a car or track on the left to preview it in 3D — rendered live in your browser, nothing installed.</div>
+    <iframe id="frame" hidden></iframe>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<script src="providers.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

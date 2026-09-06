@@ -1,0 +1,59 @@
+name: Build & deploy community gallery
+
+# Builds the catalog from the by-author asset folders and publishes it to Pages.
+# scripts/build_manifest.py uses vrmod (from the viper-racing-modding toolkit) to
+# derive every field and bake thumbnails, so the published catalog is always in
+# sync with the committed assets.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The vrmod toolkit. Pin `ref` to a tag/sha for a reproducible catalog.
+      - name: Check out vrmod (viper-racing-modding)
+        uses: actions/checkout@v4
+        with:
+          repository: HerbFargus/viper-racing-modding
+          ref: main
+          path: _vrmod
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # vrmod's viewing/thumbnail path is pure standard library (capstone is only
+      # for the optional race.bin patch and is imported lazily), so nothing to pip
+      # install for the build.
+      - name: Build the site (manifest + baked thumbnails)
+        run: PYTHONPATH="$GITHUB_WORKSPACE/_vrmod" python scripts/build_manifest.py
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
