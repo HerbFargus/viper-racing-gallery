@@ -60,6 +60,13 @@ SITE = ROOT / "site"
 # to render, what it looks like. Neither subsumes the other, so the asset
 # inherits its provenance from the corpus rather than this deriving a second,
 # weaker version of it.
+# A stock Data folder, for resolving shared textures and the paint slot while
+# baking. Nothing is read from it but .res archives.
+DATA_CANDIDATES = (
+    ROOT.parent / "game-files" / "installs" / "v1.0-RC",
+    ROOT.parent / "game-files" / "viper-racing-usa" / "Data",
+)
+
 CORPUS_CANDIDATES = (
     ROOT.parent / "viper-racing-community-cars" / "MANIFEST.json",
     ROOT / "MANIFEST.json",
@@ -132,8 +139,25 @@ def track_entry(collection: str, name: str, path: Path) -> dict:
     }
 
 
-def bake_thumbnail(kind: str, path: Path) -> bytes:
-    return carshot.to_png(path) if kind == "car" else carshot.track_to_png(path)
+def bake_thumbnail(kind: str, path: Path, data_dir: Path | None,
+                   style: str = "textured") -> bytes:
+    """A thumbnail of the asset as it actually looks.
+
+    Two things matter here and both were previously left at their defaults:
+
+    STYLE. to_png defaults to "wire", so the gallery was baking wireframes.
+    A wireframe uses no textures at all, which is why pointing this at a Data
+    folder changed nothing until the style changed too.
+
+    DATA FOLDER. A lone .car has no shared .res archives beside it, so shared
+    materials -- and, more visibly, the runtime paint slot that many community
+    cars keep their colour in -- resolve to nothing and the car renders as the
+    grey shell it literally is. shared_dir points the resolver at a real
+    install without copying race.res next to every asset.
+    """
+    if kind == "car":
+        return carshot.to_png(path, style=style, shared_dir=data_dir)
+    return carshot.track_to_png(path)
 
 
 def build_vrmod_zip(dest: Path) -> None:
@@ -185,10 +209,28 @@ def merge_provenance(entry: dict, index: dict) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--data-dir", type=Path, default=None,
+                    help="a stock Data folder, so shared textures and the paint "
+                         "slot resolve when baking thumbnails (default: a "
+                         "pristine install if one is to hand)")
+    ap.add_argument("--style", default="textured",
+                    choices=("wire", "shaded", "textured"),
+                    help="thumbnail style (default: textured; 'wire' ignores "
+                         "textures entirely, so --data-dir then does nothing)")
     ap.add_argument("--corpus", type=Path, default=None,
                     help="the corpus MANIFEST.json from Repo A's "
                          "index_carpacks.py (default: a sibling checkout)")
     args = ap.parse_args()
+
+    data_dir = args.data_dir
+    if data_dir is None:
+        data_dir = next((d for d in DATA_CANDIDATES if (d / "race.res").is_file()), None)
+    if data_dir:
+        print(f"shared textures: {data_dir}")
+    else:
+        print("shared textures: NO Data FOLDER -- shared materials and the paint "
+              "slot will not resolve, so cars that keep their colour there bake "
+              "as grey shells. Pass --data-dir.")
 
     index, corpus_path = load_corpus(args.corpus)
     if corpus_path:
@@ -212,7 +254,7 @@ def main() -> None:
             slug = f"{author}__{name}"
             try:
                 entry = merge_provenance(entry_fn(author, name, asset), index)
-                png = bake_thumbnail(kind, asset)
+                png = bake_thumbnail(kind, asset, data_dir, args.style)
             except Exception as ex:
                 print(f"  SKIP {author}/{name}: {type(ex).__name__}: {ex}")
                 continue
