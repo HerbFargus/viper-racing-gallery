@@ -27,6 +27,7 @@ used (local dev). CI pins vrmod via pip -- see the workflow.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import shutil
@@ -45,12 +46,31 @@ except ImportError:
         sys.path.insert(0, str(sibling))
     import vrmod  # re-raise if truly unavailable
 
-from vrmod import archive, envelope, carshot, car, track as track_mod, viewer  # noqa: E402
+from vrmod import (archive, carpack, envelope, carshot, car,  # noqa: E402
+                   track as track_mod, viewer)
 
 CARS_DIR = ROOT / "cars"
 TRACKS_DIR = ROOT / "tracks"
 WEB_DIR = ROOT / "web"
 SITE = ROOT / "site"
+
+# The corpus index (Repo A, scripts/index_carpacks.py) describes every ARCHIVE
+# the community ever shipped: hash, author, date, which game it was converted
+# from. This builder describes every extracted ASSET: what it is, what it costs
+# to render, what it looks like. Neither subsumes the other, so the asset
+# inherits its provenance from the corpus rather than this deriving a second,
+# weaker version of it.
+# A stock Data folder, for resolving shared textures and the paint slot while
+# baking. Nothing is read from it but .res archives.
+DATA_CANDIDATES = (
+    ROOT.parent / "game-files" / "installs" / "v1.0-RC",
+    ROOT.parent / "game-files" / "viper-racing-usa" / "Data",
+)
+
+CORPUS_CANDIDATES = (
+    ROOT.parent / "viper-racing-community-cars" / "MANIFEST.json",
+    ROOT / "MANIFEST.json",
+)
 
 
 # --- the <prefix>1.tab garage spec sheet: readable field/value text ----------
@@ -80,7 +100,7 @@ def parse_spec_tab(entries) -> dict:
     return spec
 
 
-def car_entry(author: str, name: str, path: Path) -> dict:
+def car_entry(collection: str, name: str, path: Path) -> dict:
     entries = archive.read(path)
     spec = parse_spec_tab(entries)
     prov = car.texture_provenance(path)
@@ -94,7 +114,7 @@ def car_entry(author: str, name: str, path: Path) -> dict:
         except Exception:
             pass
     return {
-        "id": f"{author}/{name}", "kind": "car", "author": author,
+        "id": f"{collection}/{name}", "kind": "car", "collection": collection,
         "name": spec.get("name") or name, "file": path.name,
         "spec": {k: v for k, v in spec.items() if k != "name"},
         "parts": sum(1 for _ in mods),
@@ -105,22 +125,39 @@ def car_entry(author: str, name: str, path: Path) -> dict:
     }
 
 
-def track_entry(author: str, name: str, path: Path) -> dict:
+def track_entry(collection: str, name: str, path: Path) -> dict:
     try:
         miles = track_mod.length_miles(path)
     except Exception:
         miles = None
     mesh = viewer._track_render_mesh(path)
     return {
-        "id": f"{author}/{name}", "kind": "track", "author": author,
+        "id": f"{collection}/{name}", "kind": "track", "collection": collection,
         "name": name, "file": path.name,
         "miles": round(miles, 2) if miles else None,
         "vertices": len(mesh.vertices), "faces": len(mesh.faces),
     }
 
 
-def bake_thumbnail(kind: str, path: Path) -> bytes:
-    return carshot.to_png(path) if kind == "car" else carshot.track_to_png(path)
+def bake_thumbnail(kind: str, path: Path, data_dir: Path | None,
+                   style: str = "textured") -> bytes:
+    """A thumbnail of the asset as it actually looks.
+
+    Two things matter here and both were previously left at their defaults:
+
+    STYLE. to_png defaults to "wire", so the gallery was baking wireframes.
+    A wireframe uses no textures at all, which is why pointing this at a Data
+    folder changed nothing until the style changed too.
+
+    DATA FOLDER. A lone .car has no shared .res archives beside it, so shared
+    materials -- and, more visibly, the runtime paint slot that many community
+    cars keep their colour in -- resolve to nothing and the car renders as the
+    grey shell it literally is. shared_dir points the resolver at a real
+    install without copying race.res next to every asset.
+    """
+    if kind == "car":
+        return carshot.to_png(path, style=style, shared_dir=data_dir)
+    return carshot.track_to_png(path)
 
 
 def build_vrmod_zip(dest: Path) -> None:
@@ -134,7 +171,74 @@ def build_vrmod_zip(dest: Path) -> None:
             z.write(p, f"vrmod/{p.relative_to(src).as_posix()}")
 
 
+def load_corpus(explicit: Path | None) -> tuple[dict, Path | None]:
+    """The provenance index, from an explicit path or a sibling checkout.
+
+    Missing is not fatal: the gallery still builds, every entry simply has no
+    author or date. It says so loudly rather than leaving the operator to
+    notice that a whole column quietly went blank.
+    """
+    for cand in ([explicit] if explicit else list(CORPUS_CANDIDATES)):
+        if cand and cand.is_file():
+            return carpack.provenance_index(carpack.load_manifest(cand)), cand
+    return {}, None
+
+
+def merge_provenance(entry: dict, index: dict) -> dict:
+    """Attach who made this and where it came from, when the corpus knows.
+
+    `author` stays absent rather than falling back to the folder name: the
+    folder is a collection ("frankscars"), not a person, and conflating those
+    two is exactly what made the old `author` field misleading.
+    """
+    prov = carpack.provenance_for(index, entry["file"]) if index else None
+    if not prov:
+        return entry
+    entry["author"] = prov.get("author")
+    entry["author_raw"] = prov.get("author_raw")
+    entry["dated"] = prov.get("dated")
+    entry["converted_from"] = prov.get("converted_from")
+    entry["source_pack"] = prov.get("path")
+    entry["source_sha256"] = prov.get("sha256")
+    # The garage sheet is the better name when it has one; the pack readme's
+    # title is the next best, and beats a bare filename.
+    if entry.get("name") == Path(entry["file"]).stem and prov.get("title"):
+        entry["name"] = prov["title"]
+    return entry
+
+
 def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--data-dir", type=Path, default=None,
+                    help="a stock Data folder, so shared textures and the paint "
+                         "slot resolve when baking thumbnails (default: a "
+                         "pristine install if one is to hand)")
+    ap.add_argument("--style", default="textured",
+                    choices=("wire", "shaded", "textured"),
+                    help="thumbnail style (default: textured; 'wire' ignores "
+                         "textures entirely, so --data-dir then does nothing)")
+    ap.add_argument("--corpus", type=Path, default=None,
+                    help="the corpus MANIFEST.json from Repo A's "
+                         "index_carpacks.py (default: a sibling checkout)")
+    args = ap.parse_args()
+
+    data_dir = args.data_dir
+    if data_dir is None:
+        data_dir = next((d for d in DATA_CANDIDATES if (d / "race.res").is_file()), None)
+    if data_dir:
+        print(f"shared textures: {data_dir}")
+    else:
+        print("shared textures: NO Data FOLDER -- shared materials and the paint "
+              "slot will not resolve, so cars that keep their colour there bake "
+              "as grey shells. Pass --data-dir.")
+
+    index, corpus_path = load_corpus(args.corpus)
+    if corpus_path:
+        print(f"corpus: {corpus_path}  ({len(index):,} asset names)")
+    else:
+        print("corpus: NONE FOUND -- entries will carry no author, date or "
+              "source pack. Point --corpus at a MANIFEST.json to fix that.")
+
     if SITE.exists():
         shutil.rmtree(SITE)
     (SITE / "thumbnails").mkdir(parents=True)
@@ -149,8 +253,8 @@ def main() -> None:
             author, name = asset.parent.parent.name, asset.parent.name
             slug = f"{author}__{name}"
             try:
-                entry = entry_fn(author, name, asset)
-                png = bake_thumbnail(kind, asset)
+                entry = merge_provenance(entry_fn(author, name, asset), index)
+                png = bake_thumbnail(kind, asset, data_dir, args.style)
             except Exception as ex:
                 print(f"  SKIP {author}/{name}: {type(ex).__name__}: {ex}")
                 continue
@@ -159,7 +263,8 @@ def main() -> None:
             entry["thumbnail"] = f"thumbnails/{slug}.png"
             entry["asset"] = f"assets/{slug}{asset.suffix.lower()}"
             manifest[f"{kind}s"].append(entry)
-            print(f"  + {author}/{name}  ({entry.get('name')})")
+            who = entry.get("author") or "no author known"
+            print(f"  + {author}/{name}  ({entry.get('name')}) -- {who}")
 
     (SITE / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     for f in WEB_DIR.iterdir():
@@ -167,9 +272,16 @@ def main() -> None:
             shutil.copy2(f, SITE / f.name)
     build_vrmod_zip(SITE / "vrmod.zip")
 
-    n = len(manifest["cars"]) + len(manifest["tracks"])
-    print(f"\nbuilt site/ -- {len(manifest['cars'])} cars, {len(manifest['tracks'])} tracks "
-          f"({n} thumbnails baked); serve with:  python -m http.server -d site 8000")
+    items = manifest["cars"] + manifest["tracks"]
+    n = len(items)
+    attributed = sum(1 for e in items if e.get("author"))
+    print(f"\nbuilt site/ -- {len(manifest['cars'])} cars, "
+          f"{len(manifest['tracks'])} tracks ({n} thumbnails baked)")
+    print(f"  attributed to a person: {attributed}/{n}"
+          + ("" if not n or attributed == n else
+             "  -- the rest are assets several packs ship (usually a stock file "
+             "riding along in a retexture), which the corpus will not guess at"))
+    print("  serve with:  python -m http.server -d site 8000")
 
 
 if __name__ == "__main__":
