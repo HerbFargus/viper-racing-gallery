@@ -38,16 +38,23 @@ class RemoteGalleryProvider {
 
   list(){
     const m = this.manifest || {cars: [], tracks: []};
+    // `author` is a PERSON and may be absent; `collection` is the folder the
+    // community filed it under and is always there. They are different things,
+    // so the byline prefers the person and falls back rather than conflating
+    // them -- showing "frankscars" as an author is what this replaced.
+    const by = i => i.author || i.collection || "unattributed";
     const cars = (m.cars || []).map(c => ({
-      kind: "car", id: c.id, name: c.name, author: c.author,
+      kind: "car", id: c.id, name: c.name,
+      author: c.author, collection: c.collection,
       file: c.file, asset: c.asset, thumb: c.thumbnail,
       verdict: c.provenance,
-      sub: `${c.author}${c.spec && c.spec.hp ? " · " + c.spec.hp + " hp" : ""}${c.spec && c.spec.top_speed ? " · " + c.spec.top_speed + " mph" : ""}`,
+      sub: `${by(c)}${c.spec && c.spec.hp ? " · " + c.spec.hp + " hp" : ""}${c.spec && c.spec.top_speed ? " · " + c.spec.top_speed + " mph" : ""}`,
     }));
     const tracks = (m.tracks || []).map(t => ({
-      kind: "track", id: t.id, name: t.name, author: t.author,
+      kind: "track", id: t.id, name: t.name,
+      author: t.author, collection: t.collection,
       file: t.file, asset: t.asset, thumb: t.thumbnail,
-      sub: `${t.author}${t.miles ? " · " + t.miles + " mi" : ""}`,
+      sub: `${by(t)}${t.miles ? " · " + t.miles + " mi" : ""}`,
     }));
     return {cars, tracks};
   }

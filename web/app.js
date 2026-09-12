@@ -25,7 +25,10 @@ async function boot(){
 function matches(item, q){
   if (!q) return true;
   q = q.toLowerCase();
-  return (item.name || "").toLowerCase().includes(q) || (item.author || "").toLowerCase().includes(q);
+  // Search the person, the collection and the name: someone looking for
+  // "valscars" and someone looking for "Val" should both find the same cars.
+  return [item.name, item.author, item.collection]
+    .some(v => (v || "").toLowerCase().includes(q));
 }
 
 function render(){

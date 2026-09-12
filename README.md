@@ -23,14 +23,38 @@ Everything in a catalog entry comes from the asset + its folder path:
 
 | Field | Source |
 |---|---|
-| `id` = `author/name` | the folder path |
+| `id` = `collection/name` | the folder path |
+| `collection` | the folder the community filed it under (`valscars`, `frankscars`…) |
 | `name`, spec (0‑60, top speed, hp, torque…) | the car's own `<prefix>1.tab` garage sheet |
 | `provenance` (self‑contained / portable / **incomplete**) | `vrmod` texture analysis |
 | `parts`, `cockpit`, vertices, `miles` (tracks) | the archive |
 | `thumbnail` | baked by `vrmod` (`carshot`) |
+| **`author`**, `author_raw`, `dated`, `converted_from` | the original pack's readme, via the corpus index |
+| **`source_pack`**, `source_sha256` | the archive the asset was extracted from |
 
-The only thing *not* derived is original-author **credits / source game** — those
-live in the historic mod archives, which stay the record of original packaging.
+### Where credits come from
+
+Credits and source game used to be the one thing this *couldn't* derive. They now
+come from the **corpus index** — `index_carpacks.py` in the
+[toolkit repo](https://github.com/HerbFargus/viper-racing-modding) reads all ~2,000
+original `.rar`/`.zip` packs in place and records who wrote each readme, when, and
+which game the car was converted from. This builder joins to it on the asset
+filename; 93% of assets are shipped by exactly one pack, so most carry a real
+name.
+
+Two distinctions the manifest keeps deliberately separate:
+
+- **`author` is a person** (`Val`, `Frank P. Wolf`) and may be **absent**.
+  **`collection` is a folder** (`valscars`) and always exists. The old manifest
+  used `author` for the folder, which read as though "frankscars" were somebody's
+  name.
+- An asset shipped by **several** packs gets **no** author rather than a guessed
+  one. Those are nearly always a stock file riding along inside a retexture —
+  `viper.car` appears in 31 packs — and guessing would credit MGI's own car to
+  whoever repacked it last.
+
+Build without the corpus and everything still works; entries simply carry no
+author, and the build says so rather than leaving a column silently blank.
 
 ## Adding a mod
 
