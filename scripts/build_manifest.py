@@ -259,6 +259,12 @@ def main() -> None:
                          "(manifest + thumbnails, ~25 MB) and leaves the bytes where "
                          "they are; entries carry source_pack/source_sha256 so a "
                          "download URL can be derived later")
+    ap.add_argument("--out-dir", type=Path, default=None,
+                    help="where to build (default: site/). Anything that is not "
+                         "the real site/ -- a staging build, the test suite -- "
+                         "should pass this: the build WIPES its output directory, "
+                         "so writing to site/ destroys a catalogue that costs 25 "
+                         "minutes to regenerate")
     ap.add_argument("--limit", type=int, default=None,
                     help="stop after N assets, for a quick look")
     ap.add_argument("--incremental", action="store_true",
@@ -269,6 +275,10 @@ def main() -> None:
                     help="the corpus MANIFEST.json from Repo A's "
                          "index_carpacks.py (default: a sibling checkout)")
     args = ap.parse_args()
+
+    global SITE
+    if args.out_dir:
+        SITE = args.out_dir
 
     data_dir = args.data_dir
     if data_dir is None:

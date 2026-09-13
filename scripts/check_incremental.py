@@ -24,13 +24,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SITE = ROOT / "site"
-BUILD = [sys.executable, str(ROOT / "scripts" / "build_manifest.py"), "--from-corpus"]
+
+# NEVER the real site/. This suite does cold builds, and a build WIPES its
+# output directory -- so running the tests used to destroy the published
+# catalogue, which costs 25 minutes to regenerate. Its own temp directory costs
+# nothing and cannot ruin anyone's afternoon.
+SITE = Path(tempfile.mkdtemp(prefix="check_incremental_"))
+BUILD = [sys.executable, str(ROOT / "scripts" / "build_manifest.py"),
+         "--from-corpus", "--out-dir", str(SITE)]
 
 PASS = FAIL = 0
 
@@ -108,6 +116,17 @@ def main() -> int:
     check("no duplicate-id warning in either build",
           "WARNING" not in cold.stdout and "WARNING" not in warm.stdout)
 
+    # Structural, not observational. An earlier version compared the real
+    # site/ before and after, which failed the moment an unrelated build ran
+    # at the same time -- the suite cannot assert that nothing else on the
+    # machine writes to a directory. What it CAN assert is that it directed
+    # every build somewhere else, which is the actual guarantee.
+    check("the suite built somewhere other than the real site/",
+          not str(SITE).startswith(str(ROOT / "site")), str(SITE))
+    check("  ...and every build command said so explicitly",
+          "--out-dir" in BUILD and BUILD[BUILD.index("--out-dir") + 1] == str(SITE))
+
+    shutil.rmtree(SITE, ignore_errors=True)
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0
 
