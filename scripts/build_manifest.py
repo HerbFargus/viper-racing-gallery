@@ -288,6 +288,36 @@ def safe_slug(raw: str, taken: dict[str, str], ident: str) -> str:
     return slug
 
 
+def apply_pack_urls(urls_path: Path, manifest: dict) -> tuple[int, int, bool]:
+    """Give every entry the URL its pack is hosted at, joined on source_pack.
+
+    RUN AS A POST-PASS, over the finished manifest, deliberately. The obvious
+    place is beside the other fields in the build loop -- and it would be wrong
+    there, because the pack-level skip reuses whole ENTRIES from the previous
+    build without opening the archive, and entries carried by --base never go
+    through the loop at all. Both would have kept their old field set and the
+    build would have reported success: the same shape as the render-recipe and
+    filename bugs before it. Here there is nothing to miss, because every entry
+    in the manifest is in the list.
+
+    Returns (matched, unmatched, cors), where `cors` says whether the host lets
+    a browser fetch these -- which decides whether the live viewer can use them
+    or only the download button can.
+    """
+    doc = json.loads(urls_path.read_text(encoding="utf-8"))
+    urls = doc.get("urls", {})
+    matched = unmatched = 0
+    for kind in ("cars", "tracks"):
+        for e in manifest.get(kind, []):
+            url = urls.get(e.get("source_pack") or "")
+            if url:
+                e["download"] = url
+                matched += 1
+            else:
+                unmatched += 1
+    return matched, unmatched, bool(doc.get("cors"))
+
+
 def carry_base(base: Path, manifest: dict) -> tuple[int, int]:
     """Fold a previously built catalogue in underneath this build's entries.
 
@@ -413,6 +443,12 @@ def main() -> None:
                          "catalogue it cannot rebuild: restore the published "
                          "artifact, then build the checked-in submissions on "
                          "top. Entries built now win on an id collision")
+    ap.add_argument("--pack-urls", type=Path,
+                    default=ROOT / "data" / "PACK-URLS.json",
+                    help="pack -> hosted download URL map from "
+                         "upload_packs.py, joined onto entries by source_pack. "
+                         "Without it the catalogue browses but nothing "
+                         "downloads")
     ap.add_argument("--allow-empty", action="store_true",
                     help="do not fail when the build produces no entries at "
                          "all. Only for a deliberately empty build")
@@ -629,6 +665,19 @@ def main() -> None:
         carried, overridden = carry_base(args.base, manifest)
         print(f"\n  carried {carried:,} entries from {args.base}"
               + (f", {overridden} overridden by this build" if overridden else ""))
+
+    if args.pack_urls and args.pack_urls.is_file():
+        matched, unmatched, cors = apply_pack_urls(args.pack_urls, manifest)
+        print(f"\n  download URLs: {matched:,} matched, {unmatched:,} without one"
+              + ("  (CORS: the 3D viewer can fetch these too)" if cors
+                 else "  (no CORS: download only, the viewer cannot fetch them)"))
+        if unmatched:
+            print(f"  WARNING: {unmatched:,} entries have no hosted pack, so "
+                  f"their Download button will do nothing. Re-run "
+                  f"upload_packs.py --urls after uploading them.")
+    else:
+        print(f"\n  download URLs: NONE ({args.pack_urls} not found) -- the "
+              f"catalogue will browse but nothing will download.")
 
     # A gallery with nothing in it is never what anyone meant. This workflow
     # published {"cars": [], "tracks": []} to the live site for weeks and

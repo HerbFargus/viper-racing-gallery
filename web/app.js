@@ -65,7 +65,17 @@ async function openItem(item, el){
   selectCard(el);
   $("viewer-empty").hidden = true; $("frame").hidden = false; $("viewerbar").hidden = false;
   $("v-title").textContent = item.name;
-  const dl = $("v-download"); dl.href = item.asset; dl.setAttribute("download", item.file);
+  // `download` on an anchor only forces a filename for a SAME-ORIGIN href; a
+  // cross-origin one is navigated to instead, which for these is the host's own
+  // download page. That is the right behaviour anyway -- it gives the visitor
+  // somewhere to see what they are getting.
+  const dl = $("v-download");
+  if (item.src){
+    dl.href = item.src; dl.hidden = false;
+    if (item.asset) dl.setAttribute("download", item.file); else dl.removeAttribute("download");
+  } else {
+    dl.hidden = true;
+  }
   $("v-stat").textContent = "building viewer…";
   try{
     const t0 = performance.now();
