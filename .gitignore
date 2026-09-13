@@ -14,3 +14,8 @@ venv/
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# Packaged catalogue artifacts (published as a release, not committed)
+dist/
+_catalogue/
+_dl/
