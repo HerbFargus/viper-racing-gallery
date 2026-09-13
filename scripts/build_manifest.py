@@ -259,6 +259,12 @@ def main() -> None:
                          "(manifest + thumbnails, ~25 MB) and leaves the bytes where "
                          "they are; entries carry source_pack/source_sha256 so a "
                          "download URL can be derived later")
+    ap.add_argument("--out-dir", type=Path, default=None,
+                    help="where to build (default: site/). Anything that is not "
+                         "the real site/ -- a staging build, the test suite -- "
+                         "should pass this: the build WIPES its output directory, "
+                         "so writing to site/ destroys a catalogue that costs 25 "
+                         "minutes to regenerate")
     ap.add_argument("--limit", type=int, default=None,
                     help="stop after N assets, for a quick look")
     ap.add_argument("--incremental", action="store_true",
@@ -269,6 +275,10 @@ def main() -> None:
                     help="the corpus MANIFEST.json from Repo A's "
                          "index_carpacks.py (default: a sibling checkout)")
     args = ap.parse_args()
+
+    global SITE
+    if args.out_dir:
+        SITE = args.out_dir
 
     data_dir = args.data_dir
     if data_dir is None:
@@ -345,8 +355,9 @@ def main() -> None:
 
         n = skipped = kept = 0
         gate = pack_unchanged if (args.incremental and cache_dir) else None
+        gone: list[str] = []
         for coll, name, path, item in corpus_source.iter_assets(
-                corpus, args.limit, skip=gate):
+                corpus, args.limit, skip=gate, missing=gone):
             kind = "car" if path.suffix.lower() == ".car" else "track"
             entry_fn = car_entry if kind == "car" else track_entry
             # The id carries the PACK, not just the asset name. In Viper Racing
@@ -408,6 +419,12 @@ def main() -> None:
         print(f"  {n + carried:,} assets -- {n - kept:,} rendered, "
               f"{kept + carried:,} reused ({carried:,} from packs never opened), "
               f"{skipped} skipped")
+        if gone:
+            print(f"\n  WARNING: {len(gone)} pack(s) named in the corpus manifest "
+                  f"are not on disk, so their assets are MISSING from this "
+                  f"build. Re-run index_carpacks.py if the trees have moved.")
+            for g in gone[:5]:
+                print(f"    {g}")
     else:
       for kind, base, glob, entry_fn in (
           ("car", CARS_DIR, "*.car", car_entry),
