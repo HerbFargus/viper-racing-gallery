@@ -146,6 +146,18 @@ class HuggingFace(Host):
         return (f"https://huggingface.co/datasets/{self.repo}/resolve/"
                 f"{self.revision}/{quote(remote)}")
 
+    def push_card(self, card: Path) -> None:
+        """The dataset card, which is just README.md at the repo root.
+
+        Kept in this repo under docs/ rather than written inline, so it is
+        reviewable and versioned like anything else, and pushed on every run so
+        the published card cannot drift from the one in the repo.
+        """
+        self._api().upload_file(
+            path_or_fileobj=str(card), path_in_repo="README.md",
+            repo_id=self.repo, repo_type="dataset",
+            commit_message="Update the dataset card")
+
     def upload(self, items: list[tuple[Path, str]]) -> tuple[int, int]:
         from huggingface_hub import HfApi
         from huggingface_hub.utils import HfHubHTTPError
@@ -277,6 +289,14 @@ def main() -> int:
                          "data rather than community work")
     ap.add_argument("--urls", type=Path, default=None,
                     help="write the source_pack -> download URL map here")
+    ap.add_argument("--card", type=Path,
+                    default=Path(__file__).resolve().parent.parent
+                    / "docs" / "huggingface-dataset-card.md",
+                    help="the dataset card to publish as README.md (Hugging "
+                         "Face only). Pushed on every --execute run, so the "
+                         "published card cannot drift from the repo's")
+    ap.add_argument("--no-card", action="store_true",
+                    help="do not touch the dataset card")
     ap.add_argument("--limit", type=int, default=None)
     args = ap.parse_args()
 
@@ -326,6 +346,12 @@ def main() -> int:
     if not todo:
         print("\n  nothing to do: the host already has everything planned.")
         return 0
+
+    if (isinstance(host, HuggingFace) and not args.no_card
+            and args.card and args.card.is_file()):
+        host._api().create_repo(host.repo, repo_type="dataset", exist_ok=True)
+        host.push_card(args.card)
+        print(f"  card      pushed {args.card.name} as README.md")
 
     print(f"\n  uploading {len(todo):,} packs to {host.name}")
     done, failed = host.upload(todo)
