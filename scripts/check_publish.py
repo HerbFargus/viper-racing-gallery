@@ -117,6 +117,32 @@ def main() -> int:
             check("...with its thumbnail, not just its row", not missing,
                   f"{len(missing)} missing")
 
+        # --- the CI failure this cost a deploy on ---------------------------
+        # 2,023 entries arrived with 2,021 thumbnails because carry_base
+        # skipped a source file it could not find, quietly. The manifest still
+        # claimed both, so nothing downstream could tell they were pictureless.
+        holed = fake_catalogue(tmp / "holed")
+        gone = next((holed / "thumbnails").glob("*.png"))
+        name = gone.name
+        gone.unlink()
+        r = run("--out-dir", str(tmp / "holed_out"), "--base", str(holed))
+        check("a carried entry with no thumbnail FAILS the build",
+              r.returncode != 0, f"exit {r.returncode}")
+        check("...and names the file it could not find",
+              name in (r.stdout + r.stderr), name)
+
+        # --- names that have to survive a zip, a URL and a filesystem --------
+        rough = fake_catalogue(tmp / "rough")
+        r = run("--out-dir", str(tmp / "rough_out"), "--base", str(rough))
+        if r.returncode == 0:
+            import re as _re
+            names = [e["thumbnail"].split("/")[-1]
+                     for e in read(tmp / "rough_out")["cars"]
+                     + read(tmp / "rough_out")["tracks"]]
+            check("carried names are left exactly as the artifact has them",
+                  all(_re.match(r"^[A-Za-z0-9._-]+$", n) for n in names),
+                  "the fixture's are already plain")
+
         # --- a submission is built on top, and wins -------------------------
         # A real .car, since the point is that the whole derive-and-render
         # path runs on a submission. The repo ships no .car fixture -- one
