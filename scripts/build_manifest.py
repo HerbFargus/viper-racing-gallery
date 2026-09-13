@@ -240,6 +240,46 @@ def reuse_thumbnail(cache: dict, cache_dir: Path | None, entry: dict,
     return True
 
 
+def carry_base(base: Path, manifest: dict) -> tuple[int, int]:
+    """Fold a previously built catalogue in underneath this build's entries.
+
+    WHY. The bulk catalogue is derived from 4.9 GB of archives that cannot live
+    in the repo, so CI can never rebuild it -- it has to be restored from a
+    published artifact. But contributors still add mods under cars/<author>/,
+    and those must be built fresh on top. This is the join between the two.
+
+    This build WINS on an id collision: an explicit submission is a deliberate
+    act, and the corpus entry for the same asset is a bulk find. Returns
+    (carried, overridden).
+    """
+    man = base / "manifest.json"
+    if not man.is_file():
+        raise SystemExit(f"error: --base {base} has no manifest.json")
+    prev = json.loads(man.read_text(encoding="utf-8"))
+    carried = overridden = 0
+    for kind in ("cars", "tracks"):
+        mine = {e["id"] for e in manifest.get(kind, [])}
+        keep = []
+        for e in prev.get(kind, []):
+            if e.get("id") in mine:
+                overridden += 1
+                continue
+            for field in ("thumbnail", "asset"):
+                rel = e.get(field)
+                if not rel:
+                    continue
+                src, dst = base / rel, SITE / rel
+                if src.is_file() and not dst.is_file():
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
+            keep.append(e)
+            carried += 1
+        # Carried entries go UNDER this build's, so a fresh submission sorts
+        # first in the gallery rather than being lost among 2,000 others.
+        manifest[kind] = manifest.get(kind, []) + keep
+    return carried, overridden
+
+
 def load_corpus(explicit: Path | None) -> tuple[dict, Path | None]:
     """The provenance index, from an explicit path or a sibling checkout.
 
@@ -305,6 +345,15 @@ def main() -> None:
                     help="reuse thumbnails from the previous build for assets whose "
                          "content fingerprint is unchanged. Rendering dominates the "
                          "build, so this is what makes adding a few mods cheap")
+    ap.add_argument("--base", type=Path, default=None,
+                    help="a previously built site/ whose entries are carried "
+                         "into this build. This is how CI serves the bulk "
+                         "catalogue it cannot rebuild: restore the published "
+                         "artifact, then build the checked-in submissions on "
+                         "top. Entries built now win on an id collision")
+    ap.add_argument("--allow-empty", action="store_true",
+                    help="do not fail when the build produces no entries at "
+                         "all. Only for a deliberately empty build")
     ap.add_argument("--corpus", type=Path, default=None,
                     help="the corpus MANIFEST.json from Repo A's "
                          "index_carpacks.py (default: a sibling checkout)")
@@ -353,6 +402,16 @@ def main() -> None:
             cache, cache_dir = {}, None
             print(f"  incremental: ignoring the previous build "
                   f"({type(ex).__name__}: {ex})")
+
+    if args.base is not None:
+        base = args.base.resolve()
+        if base == SITE.resolve() or SITE.resolve() in base.parents:
+            raise SystemExit(
+                f"error: --base {args.base} is inside site/, which this build "
+                f"wipes before it starts. Unpack the published catalogue "
+                f"somewhere else.")
+        if not (base / "manifest.json").is_file():
+            raise SystemExit(f"error: --base {args.base} has no manifest.json")
 
     if SITE.exists():
         shutil.rmtree(SITE)
@@ -496,6 +555,22 @@ def main() -> None:
 
     if cache_dir is not None:
         shutil.rmtree(cache_dir, ignore_errors=True)
+
+    if args.base is not None:
+        carried, overridden = carry_base(args.base, manifest)
+        print(f"\n  carried {carried:,} entries from {args.base}"
+              + (f", {overridden} overridden by this build" if overridden else ""))
+
+    # A gallery with nothing in it is never what anyone meant. This workflow
+    # published {"cars": [], "tracks": []} to the live site for weeks and
+    # reported success every time, because CI builds from the checked-in
+    # folders and the catalogue lives outside the repo. Silence was the bug.
+    total = len(manifest["cars"]) + len(manifest["tracks"])
+    if not total and not args.allow_empty:
+        raise SystemExit(
+            "error: the build produced no entries at all. Nothing has been "
+            "written. Check that the asset folders are populated, or pass "
+            "--from-corpus / --base, or --allow-empty if you really mean it.")
 
     (SITE / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     for f in WEB_DIR.iterdir():

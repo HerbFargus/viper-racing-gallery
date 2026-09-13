@@ -1,14 +1,26 @@
 name: Build & deploy community gallery
 
-# Builds the catalog from the by-author asset folders and publishes it to Pages.
-# scripts/build_manifest.py uses vrmod (from the viper-racing-modding toolkit) to
-# derive every field and bake thumbnails, so the published catalog is always in
-# sync with the committed assets.
+# Restores the published catalogue, builds the checked-in submissions on top of
+# it, and deploys the result to Pages.
+#
+# WHY IT IS NOT JUST A BUILD. The bulk catalogue is derived from ~2,000 archives
+# totalling 4.9 GB that cannot live in the repo, and rendering it takes about
+# half an hour. CI has neither, so it cannot rebuild the catalogue -- it restores
+# one packaged by scripts/package_catalogue.py and published as a release asset.
+#
+# This workflow used to build only from the by-author folders. Those are empty
+# for every mod that came in through the corpus, so it published
+# {"cars": [], "tracks": []} to the live site and reported success every time.
+# Two things now make that impossible: build_manifest.py exits non-zero on an
+# empty build, and the check below refuses to deploy a manifest with no entries.
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+  # A new catalogue release should reach the site without needing a code push.
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -37,11 +49,49 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The 24 MB catalogue built and packaged locally. Not fatal if absent --
+      # a fork with its own submissions and no release should still publish
+      # them -- but it is called out loudly, because a silently missing
+      # catalogue is exactly how the site went blank before.
+      - name: Restore the published catalogue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release download --repo "$GITHUB_REPOSITORY" --pattern catalogue.zip --dir _dl 2>/dev/null; then
+            mkdir -p _catalogue
+            unzip -q _dl/catalogue.zip -d _catalogue
+            echo "BASE=--base=_catalogue" >> "$GITHUB_ENV"
+            echo "::notice::restored $(jq -r '"\(.cars) cars, \(.tracks) tracks, built \(.built)"' _catalogue/CATALOGUE.json)"
+          else
+            echo "::warning::no catalogue.zip release asset -- the site will contain only the checked-in submissions. Build one with scripts/package_catalogue.py and publish it as a release."
+          fi
+
       # vrmod's viewing/thumbnail path is pure standard library (capstone is only
       # for the optional race.bin patch and is imported lazily), so nothing to pip
       # install for the build.
       - name: Build the site (manifest + baked thumbnails)
-        run: PYTHONPATH="$GITHUB_WORKSPACE/_vrmod" python scripts/build_manifest.py
+        run: |
+          PYTHONPATH="$GITHUB_WORKSPACE/_vrmod" \
+            python scripts/build_manifest.py ${BASE:-}
+
+      # The deploy gate. build_manifest.py already refuses to finish an empty
+      # build, so this is belt and braces -- but it is the assertion that would
+      # have caught the original bug at the last possible moment, and it costs
+      # nothing.
+      - name: Refuse to deploy an empty gallery
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+          m = json.loads(pathlib.Path("site/manifest.json").read_text(encoding="utf-8"))
+          n = len(m["cars"]) + len(m["tracks"])
+          shots = len(list(pathlib.Path("site/thumbnails").glob("*.png")))
+          print(f"{len(m['cars'])} cars, {len(m['tracks'])} tracks, {shots} thumbnails")
+          if not n:
+              sys.exit("refusing to deploy an empty gallery")
+          if shots < n:
+              sys.exit(f"only {shots} thumbnails for {n} entries -- something was lost")
+          PY
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
