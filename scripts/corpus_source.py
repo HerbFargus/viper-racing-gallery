@@ -82,7 +82,8 @@ def _extract(pack: Path, names: list[str], dest: Path) -> list[tuple[Path, str]]
 
 
 def iter_assets(manifest: dict, limit: int | None = None,
-                skip=None) -> Iterator[tuple[str, str, Path, dict]]:
+                skip=None, missing: list | None = None
+                ) -> Iterator[tuple[str, str, Path, dict]]:
     """Yield (collection, name, extracted_path, pack_item) for every asset.
 
     `name` carries any folder the member sat in inside the pack, so the two
@@ -119,6 +120,13 @@ def iter_assets(manifest: dict, limit: int | None = None,
         root = roots.get(item["path"].split("/")[0])
         pack = (root / item["path"]) if root else Path(item["path"])
         if not pack.is_file():
+            # Do NOT pass over this quietly. A manifest naming a pack that has
+            # moved is exactly what a reorganisation produces, and the symptom
+            # is a catalogue that is silently short: folding the VRgt packs into
+            # the community trees dropped 98 assets from a build that then
+            # reported success.
+            if missing is not None:
+                missing.append(item["path"])
             continue
         tmp = Path(tempfile.mkdtemp(prefix="gallery_src_"))
         try:
