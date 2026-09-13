@@ -179,24 +179,32 @@ def build_vrmod_zip(dest: Path) -> None:
             z.write(p, f"vrmod/{p.relative_to(src).as_posix()}")
 
 
-# Bump when a renderer change alters the pixels a given asset produces. The
-# incremental build reuses a thumbnail whose ASSET is unchanged, which is only
-# sound while the renderer is unchanged too -- switching the tracks from
+# Bump a kind's number when a renderer change alters the pixels IT produces.
+# The incremental build reuses a thumbnail whose ASSET is unchanged, which is
+# only sound while the renderer is unchanged too -- switching the tracks from
 # wireframe to textured changed no asset at all, so without this every track
 # would have kept its wireframe through a rebuild that reported success.
-#   1  wireframe cars and tracks, the original bake
-#   2  textured cars, then textured tracks framed on the racing line
-RENDER_VERSION = 2
+#
+# Per kind, because the two renderers move independently: three changes to
+# track framing should not re-render 1,770 cars that nobody touched. Measured
+# by ageing the track entries by one version and rebuilding: 253 rendered,
+# 1,770 reused, 7m49 against a full bake of everything.
+#   car   1  textured, resolved against a stock Data folder
+#   track 1  wireframe, framed on the whole mesh
+#         2  textured, framed on the racing line
+#         3  ...and on the collision solids where they disagree
+RENDER_VERSION = {"car": 1, "track": 3}
 
 
-def render_recipe(style: str, data_dir: Path | None) -> str:
+def render_recipe(kind: str, style: str, data_dir: Path | None) -> str:
     """How a thumbnail was drawn, recorded alongside what it was drawn from.
 
     `fingerprint` answers "is this still the same asset?"; this answers "would
     we draw it the same way?". Both have to hold before a cached image can be
     reused, and only the first of them used to be checked.
     """
-    return f"{style}/{'data' if data_dir else 'nodata'}/{RENDER_VERSION}"
+    where = "data" if data_dir else "nodata"
+    return f"{kind}/{style}/{where}/{RENDER_VERSION.get(kind, 0)}"
 
 
 def fingerprint(entry: dict, path: Path) -> str:
@@ -306,8 +314,8 @@ def main() -> None:
               "slot will not resolve, so cars that keep their colour there bake "
               "as grey shells. Pass --data-dir.")
 
-    recipe = render_recipe(args.style, data_dir)
-    print(f"render recipe: {recipe}")
+    recipes = {k: render_recipe(k, args.style, data_dir) for k in ("car", "track")}
+    print("render recipe: " + ", ".join(sorted(recipes.values())))
 
     index, corpus_path = load_corpus(args.corpus)
     if corpus_path:
@@ -368,7 +376,7 @@ def main() -> None:
             # changed. This skip carries the previous thumbnails across
             # wholesale without ever opening the archive, so it is much the
             # wider of the two doors a stale image can come through.
-            if any(e.get("render") != recipe for e in got):
+            if any(e.get("render") != recipes.get(e.get("kind")) for e in got):
                 return False
             # Belt and braces: only skip when the previous build recorded EVERY
             # asset this pack contributes. Reusing a partial set is how 25
@@ -413,7 +421,7 @@ def main() -> None:
                 # exactly which pack this came out of -- say so.
                 entry["source_pack"] = item["path"]
                 entry["fingerprint"] = fp = fingerprint(entry, path)
-                entry["render"] = recipe
+                entry["render"] = recipe = recipes[kind]
                 if reuse_thumbnail(cache, cache_dir, entry, slug, fp, recipe):
                     kept += 1
                 else:
@@ -455,7 +463,7 @@ def main() -> None:
               try:
                   entry = merge_provenance(entry_fn(author, name, asset), index)
                   entry["fingerprint"] = fp = fingerprint(entry, asset)
-                  entry["render"] = recipe
+                  entry["render"] = recipe = recipes[kind]
                   if not reuse_thumbnail(cache, cache_dir, entry, slug, fp, recipe):
                       (SITE / "thumbnails" / f"{slug}.png").write_bytes(
                           bake_thumbnail(kind, asset, data_dir, args.style))
