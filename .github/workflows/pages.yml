@@ -58,19 +58,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release download --repo "$GITHUB_REPOSITORY" --pattern catalogue.zip --dir _dl 2>/dev/null; then
+          # Find the newest release that actually HAS a catalogue, rather than
+          # taking the newest release and hoping. `gh release download` with no
+          # tag means "latest", and the day the pack corpus was published as its
+          # own release, latest stopped being the catalogue: the download found
+          # nothing, --base went unset, and the build refused to deploy an empty
+          # gallery. Asking for the asset by name cannot drift that way however
+          # many other releases exist.
+          TAG=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=50" --jq 'map(select(any(.assets[]?; .name == "catalogue.zip"))) | first | .tag_name // empty')
+          if [ -n "$TAG" ] && gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern catalogue.zip --dir _dl; then
             mkdir -p _catalogue
             # Python, not unzip. The artifact is written by Python's zipfile
             # with the UTF-8 name flag set, and Info-ZIP wrote one member back
             # under a different name on the runner -- a track legitimately
             # called "Cthrl Canyon" with a tilde-n. Its row survived into the
-            # manifest and its thumbnail did not. Unpacking with the same
-            # library that packed it removes the variance entirely.
+            # manifest and its thumbnail did not.
             python -m zipfile -e _dl/catalogue.zip _catalogue
             echo "BASE=--base=_catalogue" >> "$GITHUB_ENV"
-            echo "::notice::restored $(jq -r '"\(.cars) cars, \(.tracks) tracks, built \(.built)"' _catalogue/CATALOGUE.json)"
+            echo "::notice::restored from $TAG -- $(jq -r '"\(.cars) cars, \(.tracks) tracks, built \(.built)"' _catalogue/CATALOGUE.json)"
           else
-            echo "::warning::no catalogue.zip release asset -- the site will contain only the checked-in submissions. Build one with scripts/package_catalogue.py and publish it as a release."
+            echo "::warning::no release carries a catalogue.zip -- the site will contain only the checked-in submissions. Build one with scripts/package_catalogue.py and publish it as a release."
           fi
 
       # vrmod's viewing/thumbnail path is pure standard library (capstone is only
