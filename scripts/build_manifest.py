@@ -240,6 +240,54 @@ def reuse_thumbnail(cache: dict, cache_dir: Path | None, entry: dict,
     return True
 
 
+_UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def slug_is_current(entry: dict) -> bool:
+    """Would this entry's thumbnail be named the same way today?
+
+    The pack-level skip reuses a whole pack's ENTRIES, not just its images, so
+    it carries their filenames forward too -- and a change to how names are
+    built is invisible to it, exactly as a change to how pixels are drawn was
+    before RENDER_VERSION. Sanitising the 27 awkward names reported "0
+    rendered, 2,023 reused" and left all 27 exactly as they were.
+
+    Derived from the id rather than stored, so old manifests need no migration.
+    A name that collided carries a six-hex suffix; both forms are current.
+    """
+    thumb = entry.get("thumbnail")
+    ident = entry.get("id")
+    if not thumb or not ident:
+        return False
+    stem = Path(thumb).name[:-4] if thumb.endswith(".png") else Path(thumb).name
+    want = _UNSAFE.sub("_", ident.replace("/", "__"))
+    return stem == want or (stem.startswith(want + "-")
+                            and len(stem) == len(want) + 7)
+
+
+def safe_slug(raw: str, taken: dict[str, str], ident: str) -> str:
+    """A thumbnail filename that survives being a file, a URL and a zip member.
+
+    The id is data and keeps whatever the author called things; this is the
+    artifact, and it has to round-trip through more hands than the id does.
+    27 of 2,023 names needed help: 20 hold brackets ("1100GT(1)"), four a
+    space, one an @, and one track is genuinely called "Cthrl Canyon" with a
+    tilde-n -- stored correctly in the zip with the UTF-8 flag set, and lost
+    anyway when Info-ZIP's unzip wrote it back under a different name on the
+    CI runner. The row survived, the picture did not.
+
+    Sanitising can map two different ids onto one name, so a collision takes a
+    short hash of the id. Which id gets the plain name then depends on scan
+    order -- but a name is only ever claimed once per build, so the pairing is
+    stable within the manifest that names it.
+    """
+    slug = _UNSAFE.sub("_", raw)
+    if taken.get(slug, ident) != ident:
+        slug = f"{slug}-{hashlib.sha1(ident.encode('utf-8')).hexdigest()[:6]}"
+    taken[slug] = ident
+    return slug
+
+
 def carry_base(base: Path, manifest: dict) -> tuple[int, int]:
     """Fold a previously built catalogue in underneath this build's entries.
 
@@ -257,6 +305,7 @@ def carry_base(base: Path, manifest: dict) -> tuple[int, int]:
         raise SystemExit(f"error: --base {base} has no manifest.json")
     prev = json.loads(man.read_text(encoding="utf-8"))
     carried = overridden = 0
+    lost: list[str] = []
     for kind in ("cars", "tracks"):
         mine = {e["id"] for e in manifest.get(kind, [])}
         keep = []
@@ -269,7 +318,14 @@ def carry_base(base: Path, manifest: dict) -> tuple[int, int]:
                 if not rel:
                     continue
                 src, dst = base / rel, SITE / rel
-                if src.is_file() and not dst.is_file():
+                if not src.is_file():
+                    # Do NOT carry a row whose picture did not come with it.
+                    # Skipping quietly here is how 2,023 entries arrived with
+                    # 2,021 thumbnails: the manifest still claimed them, so
+                    # nothing downstream could tell.
+                    lost.append(rel)
+                    continue
+                if not dst.is_file():
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dst)
             keep.append(e)
@@ -277,6 +333,12 @@ def carry_base(base: Path, manifest: dict) -> tuple[int, int]:
         # Carried entries go UNDER this build's, so a fresh submission sorts
         # first in the gallery rather than being lost among 2,000 others.
         manifest[kind] = manifest.get(kind, []) + keep
+    if lost:
+        raise SystemExit(
+            f"error: {len(lost)} file(s) named by {man} are not in it, e.g. "
+            f"{lost[:3]}. The catalogue artifact is incomplete or was unpacked "
+            f"by something that renamed its members -- unpack it with Python's "
+            f"zipfile rather than a system unzip.")
     return carried, overridden
 
 
@@ -419,6 +481,9 @@ def main() -> None:
     (SITE / "assets").mkdir()
 
     manifest = {"cars": [], "tracks": []}
+    # Claimed thumbnail names, so a sanitised name cannot quietly overwrite
+    # another entry's picture. Shared by both build paths.
+    slugs: dict[str, str] = {}
 
     if args.from_corpus:
         if not corpus_path:
@@ -447,6 +512,10 @@ def main() -> None:
             # wider of the two doors a stale image can come through.
             if any(e.get("render") != recipes.get(e.get("kind")) for e in got):
                 return False
+            # ...and if the naming scheme changed, since this path carries the
+            # entries' filenames forward along with their pixels.
+            if any(not slug_is_current(e) for e in got):
+                return False
             # Belt and braces: only skip when the previous build recorded EVERY
             # asset this pack contributes. Reusing a partial set is how 25
             # assets went missing, and a count is cheap next to an extraction.
@@ -474,7 +543,7 @@ def main() -> None:
             # jet.rar and jet.zip, and stripping the extension collided them.
             pack_stem = Path(item["path"]).name
             ident = f"{coll}/{pack_stem}/{name}"
-            slug = f"{coll}__{pack_stem}__{name}"
+            slug = safe_slug(f"{coll}__{pack_stem}__{name}", slugs, ident)
             try:
                 entry = merge_provenance(entry_fn(coll, name, path), index)
                 entry["id"] = ident
@@ -535,7 +604,7 @@ def main() -> None:
       ):
           for asset in sorted(base.glob(f"*/*/{glob}")):
               author, name = asset.parent.parent.name, asset.parent.name
-              slug = f"{author}__{name}"
+              slug = safe_slug(f"{author}__{name}", slugs, f"{author}/{name}")
               try:
                   entry = merge_provenance(entry_fn(author, name, asset), index)
                   entry["fingerprint"] = fp = fingerprint(entry, asset)
