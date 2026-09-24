@@ -19,6 +19,8 @@ Layout produced (site/, gitignored, what Pages serves):
     site/manifest.json                            <- this
     site/thumbnails/<author>__<name>.png          <- baked
     site/assets/<author>__<name>.car|.trk         <- the hosted files (same-origin)
+    site/assets/<author>__<name>.zip              <- the download: the mod plus its readme and
+                                                     anything else filed beside it
 
 vrmod: imported if installed; otherwise a sibling ../viper-mod-manager checkout is
 used (local dev). CI pins vrmod via pip -- see the workflow.
@@ -54,8 +56,6 @@ from vrmod import (archive, carpack, envelope, carshot, car,  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import corpus_source  # noqa: E402
 
-CARS_DIR = ROOT / "cars"
-TRACKS_DIR = ROOT / "tracks"
 WEB_DIR = ROOT / "web"
 SITE = ROOT / "site"
 
@@ -142,6 +142,36 @@ def track_entry(collection: str, name: str, path: Path) -> dict:
         "miles": round(miles, 2) if miles else None,
         "vertices": len(mesh.vertices), "faces": len(mesh.faces),
     }
+
+
+ASSET_SUFFIXES = {".car", ".trk", ".tra"}
+ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)      # fixed, so an unchanged submission zips to the same bytes
+
+
+def companions(asset: Path) -> list[Path]:
+    """What was filed beside a submission: its readme, a screenshot, a menu .stp.
+
+    WHY THEY MATTER. The readme is where a mod's credits and instructions live --
+    a model's licence, "race it solo", which build it needs. The site used to
+    serve the bare asset and nothing else, so a download carried none of that,
+    and a CC BY model travelled without its attribution. The old community packs
+    always shipped the readme in the zip; this puts it back.
+
+    Other mods in the same folder are not companions -- each is its own entry.
+    """
+    return sorted(f for f in asset.parent.iterdir()
+                  if f.is_file() and f != asset and not f.name.startswith(".")
+                  and f.suffix.lower() not in ASSET_SUFFIXES)
+
+
+def write_bundle(dest: Path, asset: Path, extras: list[Path]) -> None:
+    """The download: the asset and its companions, flat, under their own names."""
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in [asset, *extras]:
+            info = zipfile.ZipInfo(f.name, ZIP_EPOCH)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            z.writestr(info, f.read_bytes())
 
 
 def bake_thumbnail(kind: str, path: Path, data_dir: Path | None,
@@ -300,6 +330,10 @@ def apply_pack_urls(urls_path: Path, manifest: dict) -> tuple[int, int, bool]:
     filename bugs before it. Here there is nothing to miss, because every entry
     in the manifest is in the list.
 
+    `unmatched` counts only entries with nothing to download at all: a
+    submission from cars/ or tracks/ carries its own `asset` (and `bundle`)
+    and needs no pack.
+
     Returns (matched, unmatched, cors), where `cors` says whether the host lets
     a browser fetch these -- which decides whether the live viewer can use them
     or only the download button can.
@@ -313,7 +347,8 @@ def apply_pack_urls(urls_path: Path, manifest: dict) -> tuple[int, int, bool]:
             if url:
                 e["download"] = url
                 matched += 1
-            else:
+            elif not (e.get("asset") or e.get("bundle")):
+                # A submission hosts its own files, so it downloads without a pack.
                 unmatched += 1
     return matched, unmatched, bool(doc.get("cors"))
 
@@ -452,6 +487,10 @@ def main() -> None:
     ap.add_argument("--allow-empty", action="store_true",
                     help="do not fail when the build produces no entries at "
                          "all. Only for a deliberately empty build")
+    ap.add_argument("--submissions", type=Path, default=ROOT,
+                    help="the folder holding cars/ and tracks/ (default: this "
+                         "repo). The test suite points it at a temp folder, so "
+                         "it neither depends on nor writes into the real one")
     ap.add_argument("--corpus", type=Path, default=None,
                     help="the corpus MANIFEST.json from Repo A's "
                          "index_carpacks.py (default: a sibling checkout)")
@@ -635,8 +674,8 @@ def main() -> None:
                 print(f"    {g}")
     else:
       for kind, base, glob, entry_fn in (
-          ("car", CARS_DIR, "*.car", car_entry),
-          ("track", TRACKS_DIR, "*.tr[ka]", track_entry),
+          ("car", args.submissions / "cars", "*.car", car_entry),
+          ("track", args.submissions / "tracks", "*.tr[ka]", track_entry),
       ):
           for asset in sorted(base.glob(f"*/*/{glob}")):
               author, name = asset.parent.parent.name, asset.parent.name
@@ -654,6 +693,11 @@ def main() -> None:
               shutil.copy2(asset, SITE / "assets" / f"{slug}{asset.suffix.lower()}")
               entry["thumbnail"] = f"thumbnails/{slug}.png"
               entry["asset"] = f"assets/{slug}{asset.suffix.lower()}"
+              extras = companions(asset)
+              if extras:
+                  # The viewer keeps fetching the bare asset; Download gets this.
+                  write_bundle(SITE / "assets" / f"{slug}.zip", asset, extras)
+                  entry["bundle"] = f"assets/{slug}.zip"
               manifest[f"{kind}s"].append(entry)
               who = entry.get("author") or "no author known"
               print(f"  + {author}/{name}  ({entry.get('name')}) -- {who}")

@@ -70,9 +70,9 @@ async function openItem(item, el){
   // download page. That is the right behaviour anyway -- it gives the visitor
   // somewhere to see what they are getting.
   const dl = $("v-download");
-  if (item.src){
-    dl.href = item.src; dl.hidden = false;
-    if (item.asset) dl.setAttribute("download", item.file); else dl.removeAttribute("download");
+  if (item.dl){
+    dl.href = item.dl; dl.hidden = false;
+    if (item.dlName) dl.setAttribute("download", item.dlName); else dl.removeAttribute("download");
   } else {
     dl.hidden = true;
   }

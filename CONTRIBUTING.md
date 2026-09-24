@@ -18,9 +18,12 @@ tracks/<author>/<name>/<name>.trk         # or .tra
 - The pair **`<author>/<name>`** is the mod's unique id, so two authors can both
   ship a `bowser.car` without colliding.
 
-That's the whole submission — one file. Optionally include the original
-distribution's `readme.txt`/`.jpg` in the folder for archival; they're ignored by
-the build (the gallery derives everything), but they preserve the original credits.
+That's the whole submission — one file. **Include a `readme.txt`** in the folder
+too: credits, the model's licence, and anything a player needs to know (solo only,
+which build it needs). The gallery derives its own listing, but the Download
+button hands out a zip of the mod **plus everything filed beside it** — readme,
+screenshots, a menu `.stp` — the way the old community packs shipped. A folder
+with nothing but the mod downloads as the bare file.
 
 ## What the build derives
 
