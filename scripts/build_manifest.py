@@ -223,7 +223,9 @@ def build_vrmod_zip(dest: Path) -> None:
 #   track 1  wireframe, framed on the whole mesh
 #         2  textured, framed on the racing line
 #         3  ...and on the collision solids where they disagree
-RENDER_VERSION = {"car": 1, "track": 3}
+#         4  knockable objects (wobbles) stand up: vrmod's grf.parse used to
+#            read their models lying on their backs (viper-racing-modding#135)
+RENDER_VERSION = {"car": 1, "track": 4}
 
 
 def render_recipe(kind: str, style: str, data_dir: Path | None) -> str:
