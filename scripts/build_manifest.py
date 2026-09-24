@@ -670,7 +670,12 @@ def main() -> None:
             # Belt and braces: only skip when the previous build recorded EVERY
             # asset this pack contributes. Reusing a partial set is how 25
             # assets went missing, and a count is cheap next to an extraction.
-            if len(got) != len(corpus_source.own_assets(item)):
+            # `pack_yield` is what the pack actually produced last time -- its
+            # candidates minus any genuine stock copies, which only the
+            # extraction can tell apart; a catalogue from before it existed
+            # falls back to the candidate count and re-extracts once.
+            expect = got[0].get("pack_yield", len(corpus_source.own_assets(item)))
+            if len(got) != expect:
                 return False
             untouched[item["path"]] = got
             return True
@@ -711,6 +716,12 @@ def main() -> None:
                 # exactly which pack this came out of -- say so.
                 entry["source_pack"] = item["path"]
                 entry["fingerprint"] = fp = fingerprint(entry, path)
+                if corpus_source.is_stock_name(path.name):
+                    # A modified stock-named file: Val's Viper.car, a winter
+                    # nfield.trk. Every one would otherwise read "Viper" or
+                    # "nfield"; the pack is what tells them apart.
+                    base = corpus_source.SLOT_NAMES.get(path.stem.lower(), entry.get("name") or path.stem)
+                    entry["name"] = f"{base} ({Path(pack_stem).stem})"
                 entry["render"] = recipe = recipes[kind]
                 if reuse_thumbnail(cache, cache_dir, entry, slug, fp, recipe):
                     kept += 1
@@ -780,6 +791,13 @@ def main() -> None:
 
     if cache_dir is not None:
         shutil.rmtree(cache_dir, ignore_errors=True)
+
+    per_pack = collections.Counter(e.get("source_pack") for k in ("cars", "tracks")
+                                   for e in manifest[k] if e.get("pack_sha256"))
+    for k in ("cars", "tracks"):
+        for e in manifest[k]:
+            if e.get("pack_sha256") and e.get("source_pack"):
+                e["pack_yield"] = per_pack[e["source_pack"]]
 
     if args.base is not None:
         carried, overridden = carry_base(args.base, manifest)
