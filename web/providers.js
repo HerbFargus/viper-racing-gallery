@@ -86,8 +86,10 @@ class RemoteGalleryProvider {
     // so the byline prefers the person and falls back rather than conflating
     // them -- showing "frankscars" as an author is what this replaced.
     const by = i => i.author || i.collection || "unattributed";
+    // A file shipped in several packs is one card; say where else it came from.
+    const alsoIn = e => (e.also_in || []).map(o => o.pack || o.id);
     const cars = (m.cars || []).map(c => ({
-      kind: "car", id: c.id, name: c.name,
+      kind: "car", id: c.id, name: c.name, alsoIn: alsoIn(c),
       author: c.author, collection: c.collection,
       file: c.file, asset: c.asset, src: c.download || c.asset, thumb: c.thumbnail,
       ...downloadOf(c),
@@ -95,7 +97,7 @@ class RemoteGalleryProvider {
       sub: `${by(c)}${c.spec && c.spec.hp ? " · " + c.spec.hp + " hp" : ""}${c.spec && c.spec.top_speed ? " · " + c.spec.top_speed + " mph" : ""}`,
     }));
     const tracks = (m.tracks || []).map(t => ({
-      kind: "track", id: t.id, name: t.name,
+      kind: "track", id: t.id, name: t.name, alsoIn: alsoIn(t),
       author: t.author, collection: t.collection,
       file: t.file, asset: t.asset, src: t.download || t.asset, thumb: t.thumbnail,
       ...downloadOf(t),

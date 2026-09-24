@@ -149,6 +149,40 @@ def main() -> int:
                   all(_re.match(r"^[A-Za-z0-9._-]+$", n) for n in names),
                   "the fixture's are already plain")
 
+        # --- duplicates fold into one card -----------------------------------
+        # The same file shipped in two packs (VRgt's Monza in its normal and its
+        # _lowres zip, byte for byte) must be ONE card that remembers both packs;
+        # two different files sharing a name stay two, the low-res one labelled.
+        twin = fake_catalogue(tmp / "twin")
+        man = json.loads((twin / "manifest.json").read_text(encoding="utf-8"))
+        base_track = man["tracks"][0]
+        png = next((twin / "thumbnails").glob("*.png")).read_bytes()
+        extra = []
+        for ident, pack, fp in (("fixture/Monza_01_lowres.zip/beta", "Monza_01_lowres.zip", "0" * 64),
+                                ("fixture/Big_01.zip/gamma", "Big_01.zip", "1" * 64),
+                                ("fixture/Big_01_lowres.zip/gamma", "Big_01_lowres.zip", "2" * 64)):
+            e = dict(base_track, id=ident, pack=pack, source_pack="fixture/" + pack, fingerprint=fp,
+                     thumbnail=f"thumbnails/{ident.replace('/', '__')}.png",
+                     name=ident.rsplit("/", 1)[-1], file=ident.rsplit("/", 1)[-1] + ".tra")
+            (twin / e["thumbnail"]).write_bytes(png)
+            extra.append(e)
+        man["tracks"][0].update(pack="Monza_01.zip", source_pack="fixture/Monza_01.zip")
+        man["tracks"] += extra
+        (twin / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
+        r = run("--out-dir", str(tmp / "twin_out"), "--base", str(twin))
+        check("a catalogue with duplicates builds", r.returncode == 0, f"exit {r.returncode}")
+        if r.returncode == 0:
+            got = read(tmp / "twin_out")["tracks"]
+            beta = [e for e in got if e["id"].endswith("/beta")]
+            check("the same file in two packs is one card", len(beta) == 1, f"{len(beta)} cards")
+            check("...the normal pack's, remembering the low-res one",
+                  bool(beta) and beta[0]["id"] == "fixture/pack.zip/beta"
+                  and [o["pack"] for o in beta[0].get("also_in", [])] == ["Monza_01_lowres.zip"],
+                  str(beta[0].get("also_in") if beta else None))
+            gamma = sorted(e["name"] for e in got if e["id"].endswith("/gamma"))
+            check("two different files of one name stay two, the low-res one labelled",
+                  gamma == ["gamma", "gamma (low-res)"], str(gamma))
+
         # --- a submission is built on top, and wins -------------------------
         # A real .car, since the point is that the whole derive-and-render
         # path runs on a submission. The repo ships no .car fixture -- one
