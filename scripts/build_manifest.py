@@ -353,6 +353,82 @@ def apply_pack_urls(urls_path: Path, manifest: dict) -> tuple[int, int, bool]:
     return matched, unmatched, bool(doc.get("cors"))
 
 
+LOWRES = ("lowres", "low-res", "low_res", "_lo.", "lores")
+
+
+def merge_duplicates(manifest: dict) -> tuple[int, int]:
+    """One card per distinct file: fold byte-identical copies into one entry.
+
+    WHY. The catalogue has one entry per (pack, asset), and many assets were
+    distributed in more than one pack: VRgt shipped Monza and NorthRW in a normal
+    and a "_lowres" pack whose .tra is byte-identical, Val's planes sit in their
+    own zips, in 10planes.zip and again in the Carrier1 track pack. The gallery
+    showed each copy as its own card. The fingerprint is the asset's own sha256,
+    so a duplicate is exactly "same fingerprint".
+
+    WHICH ONE STAYS. A submission from this repo first (it hosts its own file);
+    then the most specific pack -- the one holding the fewest assets, so a car's
+    own zip beats a compilation; then a pack not named low-res; then the shortest
+    pack name. The others are kept on the survivor as `also_in`, so no pack
+    disappears from the record.
+
+    VARIANTS. Two DIFFERENT files with the same name in one collection are kept
+    apart; where one comes from a low-res pack its name says so. Lake Patuwo's
+    low-res build is a real, lighter track, not a copy.
+
+    RUN AS A POST-PASS over the finished manifest, for the same reason as
+    apply_pack_urls: carried and reused entries never pass through the build
+    loop. Returns (entries removed, variants labelled).
+    """
+    removed = labelled = 0
+    for kind in ("cars", "tracks"):
+        items = manifest.get(kind, [])
+        pack_size = collections.defaultdict(int)
+        for e in items:
+            pack_size[e.get("source_pack") or e.get("id")] += 1
+        groups = collections.defaultdict(list)
+        for e in items:
+            if e.get("fingerprint"):
+                groups[e["fingerprint"]].append(e)
+
+        def rank(e):
+            pack = (e.get("pack") or e.get("source_pack") or "").lower()
+            return (0 if e.get("asset") else 1, pack_size[e.get("source_pack") or e.get("id")],
+                    any(k in pack for k in LOWRES), len(pack), e["id"])
+
+        drop = set()
+        for fp, group in groups.items():
+            if len(group) < 2:
+                continue
+            group.sort(key=rank)
+            keep = group[0]
+            others = group[1:]
+            also = list(keep.get("also_in", []))
+            for o in others:
+                also.append({"id": o["id"], "pack": o.get("pack") or o.get("collection"),
+                             "collection": o.get("collection"), "download": o.get("download")})
+                if not keep.get("author") and o.get("author"):
+                    keep["author"] = o["author"]
+                drop.add(id(o))
+            keep["also_in"] = also
+        before = len(items)
+        items[:] = [e for e in items if id(e) not in drop]
+        removed += before - len(items)
+
+        by_file = collections.defaultdict(list)
+        for e in items:
+            by_file[(e.get("collection"), (e.get("file") or "").lower())].append(e)
+        for same in by_file.values():
+            if len({e.get("fingerprint") for e in same}) < 2:
+                continue
+            for e in same:
+                pack = (e.get("pack") or e.get("source_pack") or "").lower()
+                if any(k in pack for k in LOWRES) and "(low-res)" not in e["name"]:
+                    e["name"] += " (low-res)"
+                    labelled += 1
+    return removed, labelled
+
+
 def carry_base(base: Path, manifest: dict) -> tuple[int, int]:
     """Fold a previously built catalogue in underneath this build's entries.
 
@@ -722,6 +798,11 @@ def main() -> None:
     else:
         print(f"\n  download URLs: NONE ({args.pack_urls} not found) -- the "
               f"catalogue will browse but nothing will download.")
+
+    removed, labelled = merge_duplicates(manifest)
+    if removed or labelled:
+        print(f"\n  duplicates: {removed:,} byte-identical copies folded into the entry they match"
+              + (f"; {labelled} low-res variant(s) labelled" if labelled else ""))
 
     # A gallery with nothing in it is never what anyone meant. This workflow
     # published {"cars": [], "tracks": []} to the live site for weeks and

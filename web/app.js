@@ -55,6 +55,7 @@ function card(grid, item){
   el.innerHTML =
     `<div class="shot">${item.thumb ? `<img src="${item.thumb}" loading="lazy" alt="">` : "…"}</div>` +
     `<div class="meta"><div class="name">${item.name}${chip}</div><div class="sub">${item.sub}</div></div>`;
+  if (item.alsoIn && item.alsoIn.length) el.title = "Also shipped in: " + item.alsoIn.join(", ");
   el.onclick = () => openItem(item, el);
   grid.appendChild(el);
 }
