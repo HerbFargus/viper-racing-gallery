@@ -50,6 +50,20 @@ def unpack(zip_name, wanted):
         return out.name
 `;
 
+// What the Download button hands out, and the filename to save it under.
+// A submission with a readme downloads as a zip of the mod plus its readme --
+// the credits and instructions have to travel with the file, the way the old
+// community packs shipped. The viewer does not use this: it keeps fetching
+// the bare asset (`src`), which is smaller and needs no unpacking.
+// `name` is set only for same-origin files; a cross-origin `download` link
+// ignores the attribute anyway and opens the host's own page.
+function downloadOf(e){
+  if (e.bundle) return {dl: e.bundle, dlName: e.file.replace(/\.[^.]+$/, "") + ".zip"};
+  if (e.download) return {dl: e.download, dlName: null};
+  if (e.asset) return {dl: e.asset, dlName: e.file};
+  return {dl: null, dlName: null};
+}
+
 class RemoteGalleryProvider {
   constructor(manifestUrl = "manifest.json"){
     this.manifestUrl = manifestUrl;
@@ -76,6 +90,7 @@ class RemoteGalleryProvider {
       kind: "car", id: c.id, name: c.name,
       author: c.author, collection: c.collection,
       file: c.file, asset: c.asset, src: c.download || c.asset, thumb: c.thumbnail,
+      ...downloadOf(c),
       verdict: c.provenance,
       sub: `${by(c)}${c.spec && c.spec.hp ? " · " + c.spec.hp + " hp" : ""}${c.spec && c.spec.top_speed ? " · " + c.spec.top_speed + " mph" : ""}`,
     }));
@@ -83,6 +98,7 @@ class RemoteGalleryProvider {
       kind: "track", id: t.id, name: t.name,
       author: t.author, collection: t.collection,
       file: t.file, asset: t.asset, src: t.download || t.asset, thumb: t.thumbnail,
+      ...downloadOf(t),
       sub: `${by(t)}${t.miles ? " · " + t.miles + " mi" : ""}`,
     }));
     return {cars, tracks};

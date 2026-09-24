@@ -45,8 +45,14 @@ def check(name: str, ok: bool, detail: str = "") -> None:
         print(f"  FAIL  {name}" + (f"  ({detail})" if detail else ""))
 
 
+# The repo's own cars/ and tracks/ hold real submissions now, so a check that
+# means "no submissions" must not read them. Every build here runs against a
+# temp submissions folder: EMPTY unless a check puts a fixture in it.
+SUBMISSIONS = Path(tempfile.mkdtemp(prefix="check_publish_subs_"))
+
+
 def run(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(BUILD + list(args), cwd=ROOT,
+    return subprocess.run(BUILD + ["--submissions", str(SUBMISSIONS)] + list(args), cwd=ROOT,
                           capture_output=True, text=True, timeout=1800)
 
 
@@ -157,10 +163,11 @@ def main() -> int:
         if donor is None:
             print("  --    no .car to hand, skipping the submission checks")
         else:
-            author = ROOT / "cars" / "_checkfixture" / donor.stem
+            author = SUBMISSIONS / "cars" / "_checkfixture" / donor.stem
             try:
                 author.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(donor, author / donor.name)
+                (author / "readme.txt").write_text("credits go here" + chr(10), encoding="utf-8")
                 out = tmp / "both"
                 r = run("--out-dir", str(out), "--base", str(base))
                 check("a submission builds on top of the carried catalogue",
@@ -179,6 +186,14 @@ def main() -> int:
                           bool(fresh and fresh[0].get("asset")),
                           "the carried corpus entries do not -- they are hosted "
                           "elsewhere")
+                    sub = fresh[0] if fresh else {}
+                    bundle = out / sub.get("bundle", "missing.zip")
+                    names = zipfile.ZipFile(bundle).namelist() if bundle.is_file() else []
+                    check("a submission with a readme downloads as a zip holding both",
+                          sorted(names) == sorted([donor.name, "readme.txt"]), str(names))
+                    check("...and the zip's copy is the hosted asset, byte for byte",
+                          bool(names) and zipfile.ZipFile(bundle).read(donor.name)
+                          == (out / sub["asset"]).read_bytes())
                     check("submissions sort ahead of the carried bulk",
                           man["cars"][0]["id"].startswith("_checkfixture/"),
                           man["cars"][0]["id"])
@@ -242,6 +257,7 @@ def main() -> int:
               "publishing one is how the site went blank")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+        shutil.rmtree(SUBMISSIONS, ignore_errors=True)
 
     print(f"\n{PASS}/{PASS + FAIL} passed")
     return 1 if FAIL else 0
