@@ -10,6 +10,9 @@ function overlay(show, msg, sub){
 }
 
 let provider, library = {cars: [], tracks: []}, selCard = null;
+// Which kind of mod the grid shows. Kept in the URL hash (#cars, #tracks) so a
+// link can open straight onto the tracks.
+let kind = ["cars", "tracks"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "all";
 
 async function boot(){
   try{
@@ -34,8 +37,9 @@ function matches(item, q){
 function render(){
   const q = $("search").value.trim();
   const grid = $("grid"); grid.innerHTML = ""; selCard = null;
-  const cars = library.cars.filter(i => matches(i, q));
-  const tracks = library.tracks.filter(i => matches(i, q));
+  const cars = kind === "tracks" ? [] : library.cars.filter(i => matches(i, q));
+  const tracks = kind === "cars" ? [] : library.tracks.filter(i => matches(i, q));
+  $("library").scrollTop = 0;
   if (!cars.length && !tracks.length){
     grid.innerHTML = '<div class="empty">Nothing matches. The catalog is built from the by-author folders by scripts/build_manifest.py.</div>';
     return;
@@ -87,5 +91,15 @@ async function openItem(item, el){
   }catch(e){ overlay(false); $("v-stat").textContent = "failed: " + e.message; }
 }
 
+function setKind(k, quiet){
+  kind = k;
+  document.querySelectorAll("#kind button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.kind === k)));
+  if (quiet) return;                 // the first call, before the catalog has loaded
+  history.replaceState(null, "", k === "all" ? location.pathname + location.search : "#" + k);
+  render();
+}
+
+document.querySelectorAll("#kind button").forEach(b => b.addEventListener("click", () => setKind(b.dataset.kind)));
+setKind(kind, true);
 $("search").addEventListener("input", render);
 boot();

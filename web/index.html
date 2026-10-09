@@ -18,6 +18,12 @@
   h1 span{color:var(--dim);font-weight:400}
   #search{background:#12141a;border:1px solid var(--line);border-radius:6px;color:var(--ink);
           padding:6px 10px;font:inherit;min-width:200px}
+  #kind{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  #kind button{background:#12141a;border:0;border-left:1px solid var(--line);color:var(--dim);
+               font:inherit;padding:6px 12px;cursor:pointer}
+  #kind button:first-child{border-left:0}
+  #kind button:hover{color:var(--ink)}
+  #kind button[aria-pressed="true"]{background:var(--accent-bg);color:var(--accent)}
   #status{color:var(--dim);font-size:12.5px;margin-left:auto;text-align:right}
   #status.err{color:var(--bad);white-space:pre-wrap}
   #status.ok{color:var(--good)}
@@ -42,6 +48,7 @@
   .empty{grid-column:1/-1;padding:40px 16px;text-align:center;color:var(--dim)}
 
   #viewerbar{padding:8px 16px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center;flex:0 0 auto}
+  #viewerbar[hidden]{display:none}
   #viewerbar .title{font-weight:600}
   #viewerbar .vstat{color:var(--dim);font-size:12px;margin-left:auto}
   #frame{flex:1;border:0;width:100%;background:#0e1017}
@@ -66,6 +73,11 @@
 <header>
   <h1>Viper Racing Community Gallery <span>· preview & download community cars and tracks</span></h1>
   <input id="search" type="search" placeholder="Search name or author…" autocomplete="off">
+  <div id="kind" role="group" aria-label="Show">
+    <button data-kind="all" aria-pressed="true">All</button>
+    <button data-kind="cars" aria-pressed="false">Cars</button>
+    <button data-kind="tracks" aria-pressed="false">Tracks</button>
+  </div>
   <span id="status">loading catalog…</span>
 </header>
 
