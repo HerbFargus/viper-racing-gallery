@@ -1,0 +1,16 @@
+Smokey (smokey.car) for Viper Racing -- by HerbFargus
+
+Model: an original low-poly model of the Smokey fire truck toy from the Putt-Putt
+line, built by hand from photos of the toy: the red cab with its face (3D eyes, curved
+brows, cheeks meeting at the nose, a toothy grin), the ladder, hoses and rear-view
+mirrors that stick out.
+
+Physics: Val's "best handling and performance" Viper (Val in Moose Jaw, 22 Oct 2014; his
+readme permits reusing its parts), tuned for a tall body that rolls: 210 hp, 3.50 final
+drive, 510/56 R22 tyres. The truck is 3.8 m long and 2.9 m tall.
+
+Changes: converted to a Viper Racing car with vrmod. The engine (a V8), the siren horn
+and the blue water-balloon horn ball are generated from scratch. The cockpit puts you in
+the cab, looking out through the truck's face.
+
+Install: copy smokey.car into the Viper Racing folder. It appears as "Smokey".

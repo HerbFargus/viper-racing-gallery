@@ -1,0 +1,25 @@
+Putt-Putt (puttputt.car) for Viper Racing -- by HerbFargus
+
+Model: an original low-poly model of the Putt-Putt toy, built by hand from photos of
+the toy: the purple roadster with his big eyes, eyebrows and grin, the windscreen, the
+broken-off antenna, and Pep riding along.
+
+Physics: Val's "best handling and performance" Viper (Val in Moose Jaw, 22 Oct 2014; his
+readme permits reusing its parts) -- his whole physics file, with only the car's own
+dimensions and 325/55 R18 tyres. Putt-Putt is 4.0 m long, on a short 65.8 in wheelbase.
+
+Game art and sound: the horn honk, the dashboard art, the Zoo Chow logo and the smiley
+horn icon come from Putt-Putt Saves the Zoo (Humongous Entertainment, 1995). They are
+included as a fan tribute, for personal use; all rights stay with their owners.
+
+Changes: converted to a Viper Racing car with vrmod, with baked lighting (shading and
+occlusion painted into the textures). The engine is a generated little two-cylinder
+putt-putt. The horn is Putt-Putt's own honk, and the horn ball is a Zoo Chow sack. The
+cockpit is Pep's view: the game's pink dashboard with a working speedometer needle, and
+a steering wheel with the smiley horn in the middle.
+
+Known quirks: the gear number sits over the dashboard radio, the Zoo Chow sack is drawn
+bigger than its (fixed) collision ball so it sits a little into the ground, and the eyes
+simplify at a distance.
+
+Install: copy puttputt.car into the Viper Racing folder. It appears as "Putt-Putt".
